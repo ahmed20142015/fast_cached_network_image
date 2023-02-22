@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -160,7 +161,7 @@ class _FastCachedImageState extends State<FastCachedImage>
             begin: widget.fadeInDuration == Duration.zero ? 1 : 0, end: 1)
         .animate(_animationController);
 
-    WidgetsBinding.instance.addPostFrameCallback((timeStamp) {
+    WidgetsBinding.instance!.addPostFrameCallback((timeStamp) {
       _loadAsync(widget.url);
       _animationController
           .addStatusListener((status) => _animationListener(status));
@@ -511,7 +512,7 @@ class FastCachedImageProvider extends ImageProvider<NetworkImage>
 
   @override
   ImageStreamCompleter loadBuffer(
-      NetworkImage key, DecoderBufferCallback decode) {
+      NetworkImage key, DecoderCallback decode) {
     final StreamController<ImageChunkEvent> chunkEvents =
         StreamController<ImageChunkEvent>();
 
@@ -530,7 +531,7 @@ class FastCachedImageProvider extends ImageProvider<NetworkImage>
   Future<ui.Codec> _loadAsync(
     FastCachedImageProvider key,
     StreamController<ImageChunkEvent> chunkEvents,
-    DecoderBufferCallback decode,
+    DecoderCallback decode,
   ) async {
     try {
       assert(key == this);
@@ -540,7 +541,7 @@ class FastCachedImageProvider extends ImageProvider<NetworkImage>
       if (image != null) {
         final ui.ImmutableBuffer buffer =
             await ui.ImmutableBuffer.fromUint8List(image);
-        return decode(buffer);
+        return decode(image);
       }
 
       final Uri resolved = Uri.base.resolve(key.url);
@@ -565,13 +566,13 @@ class FastCachedImageProvider extends ImageProvider<NetworkImage>
       final ui.ImmutableBuffer buffer =
           await ui.ImmutableBuffer.fromUint8List(bytes);
       await FastCachedImageConfig._saveImage(url, bytes);
-      return decode(buffer);
+      return decode(bytes);
     } catch (e) {
       // Depending on where the exception was thrown, the image cache may not
       // have had a chance to track the key in the cache at all.
       // Schedule a microtask to give the cache a chance to add the key.
       scheduleMicrotask(() {
-        PaintingBinding.instance.imageCache.evict(key);
+        PaintingBinding.instance!.imageCache!.evict(key);
       });
       rethrow;
     } finally {
@@ -595,4 +596,20 @@ class FastCachedImageProvider extends ImageProvider<NetworkImage>
   @override
   String toString() =>
       '${objectRuntimeType(this, 'NetworkImage')}("$url", scale: $scale)';
+
+  @override
+  ImageStreamCompleter load(NetworkImage key, DecoderCallback decode) {
+    final StreamController<ImageChunkEvent> chunkEvents =
+    StreamController<ImageChunkEvent>();
+    return MultiFrameImageStreamCompleter(
+      codec: _loadAsync(key as FastCachedImageProvider, chunkEvents, decode),
+      chunkEvents: chunkEvents.stream,
+      scale: key.scale,
+      debugLabel: key.url,
+      informationCollector: () => <DiagnosticsNode>[
+        DiagnosticsProperty<ImageProvider>('Image provider', this),
+        DiagnosticsProperty<NetworkImage>('Image key', key),
+      ],
+    );
+  }
 }
